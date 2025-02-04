@@ -74,20 +74,32 @@ async def get_captcha_token():
         var done = arguments[0];
         (async function() {
             try {
-                const element = document.querySelector('[data-hcaptcha-widget-id]');
-                if (!element) return done({error: 'Elemento não encontrado'});
-                
-                // Extrai o captchaId do atributo data-hcaptcha-widget-id
-                const captchaId = element.getAttribute('data-hcaptcha-widget-id');
-                if (!captchaId) return done({error: 'Captcha ID não encontrado'});
-                
-                const reponse = await hcaptcha.execute(captchaId, {async: true});
-                if (!reponse) return done({error: 'Erro ao executar hCaptcha'});
-                
-                done({token: reponse});
+            const element = document.querySelector('[data-hcaptcha-widget-id]');
+            if (!element) return done({error: 'Elemento não encontrado'});
+
+            // Extrai o captchaId do atributo data-hcaptcha-widget-id
+            const captchaId = element.getAttribute('data-hcaptcha-widget-id');
+            if (!captchaId) return done({error: 'Captcha ID não encontrado'});
+
+            // Cria uma promessa que rejeita após 10 segundos
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => {
+                    reject(new Error('Timeout: hCaptcha não respondeu em 10 segundos'));
+                }, 10000); // 10 segundos
+            });
+
+            // Executa o hCaptcha e compete com o timeout
+            const hcaptchaPromise = hcaptcha.execute(captchaId, {async: true});
+
+            // Usa Promise.race para definir o timeout
+            const reponse = await Promise.race([hcaptchaPromise, timeoutPromise]);
+
+            if (!reponse) return done({error: 'Erro ao executar hCaptcha'});
+
+            done({token: reponse});
             } catch(error) {
                 console.error('Erro:', error);
-                done({error: 'Erro ao buscar captchaId'});
+                done({error: error.message || 'Erro ao buscar captchaId'});
             }
         })();
         """
