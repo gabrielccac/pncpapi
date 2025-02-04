@@ -28,15 +28,13 @@ app = FastAPI(lifespan=lifespan)
 def initialize_driver():
     global driver, last_used_time
     driver = Driver(uc=True, headless=True)
-    driver.set_script_timeout(30)
+    driver.set_window_size(1200, 600)
     driver.get("https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras")
 
     # Espera explícita pelo carregamento do hCaptcha
     try:
-        wait = WebDriverWait(driver, 15)
-        wait.until(EC.presence_of_element_located(
-            (By.CSS_SELECTOR, 'iframe[data-hcaptcha-widget-id]')
-        ))
+        wait = WebDriverWait(driver, 10)
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'iframe[data-hcaptcha-widget-id]')))
     except Exception as e:
         print("Erro na inicialização:", str(e))
         driver.quit()
