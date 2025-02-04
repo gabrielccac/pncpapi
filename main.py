@@ -8,7 +8,7 @@ import threading
 import time
 import base64
 from io import BytesIO
-import undetected_chromedriver as uc  # Importe o undetected_chromedriver
+from time import sleep
 
 # Variáveis globais para gerenciar o driver, lock e último uso
 driver = None
@@ -70,31 +70,46 @@ async def get_captcha_token():
         last_used_time = time.time()
 
         # Código JavaScript simplificado para retornar o elemento do hCaptcha
-        js_function = js_function = """
+        js_function = """
         var done = arguments[0];
         (async function() {
             try {
                 const element = document.querySelector('[data-hcaptcha-widget-id]');
-                if (!element) return done('Elemento não encontrado');
+                if (!element) return done({error: 'Elemento não encontrado'});
                 
                 // Extrai o captchaId do atributo data-hcaptcha-widget-id
                 const captchaId = element.getAttribute('data-hcaptcha-widget-id');
-                if (!captchaId) return done('Captcha ID não encontrado');
+                if (!captchaId) return done({error: 'Captcha ID não encontrado'});
                 
-                done(captchaId);
-
-
+                const reponse = await hcaptcha.execute(captchaId, {async: true});
+                if (!reponse) return done({error: 'Erro ao executar hCaptcha'});
+                
+                done({token: reponse});
             } catch(error) {
                 console.error('Erro:', error);
-                done('Erro ao buscar captchaId');
+                done({error: 'Erro ao buscar captchaId'});
             }
         })();
         """
 
         try:
             # Executa o script para buscar o elemento
-            token = driver.execute_async_script(js_function)
-            return {"captcha": token}
+            result = driver.execute_async_script(js_function)
+
+            # Verifica se houve erro no JavaScript
+            if "error" in result:
+                return {"error": result["error"]}
+
+            sleep(3)
+            
+            # Captura o screenshot da página após a execução do hCaptcha
+            screenshot = driver.get_screenshot_as_png()
+            screenshot_base64 = base64.b64encode(screenshot).decode('utf-8')
+
+            return {
+                "captcha": result["token"],
+                "screenshot": screenshot_base64
+            }
 
         except Exception as e:
             print("Erro na execução do script:", str(e))
