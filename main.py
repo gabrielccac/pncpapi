@@ -47,7 +47,7 @@ def generate_token():
                     attempts++;
                 }
                 
-                const element = document.querySelector('[data-hcaptcha-widget-id]');
+                const element = document.querySelector('iframe[data-hcaptcha-widget-id]');
                 if (!element) {
                     done('');
                     return;
