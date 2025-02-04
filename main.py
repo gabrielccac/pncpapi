@@ -32,19 +32,14 @@ def initialize_driver():
     global driver, last_used_time
 
     # Inicializa o driver com as opções configuradas
-    driver = Driver(uc=True, headless=True, chromium_arg=[
-    "--enable-automation",
-    "--no-sandbox",
-    "--disable-extensions",
-    "--dns-prefetch-disable",
-    "--disable-gpu"])
+    driver = Driver(uc=True, headless=True)
     
     driver.set_window_size(1200, 600)
     driver.get("https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras")
 
-    # Espera explícita pelo carregamento do hCaptcha
+    # Espera explícita pelo carregamento do hCaptcha com timeout maior
     try:
-        wait = WebDriverWait(driver, 10)
+        wait = WebDriverWait(driver, 30)  # Aumentado para 30 segundos
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'iframe[data-hcaptcha-widget-id]')))
     except Exception as e:
         print("Erro na inicialização:", str(e))
@@ -74,40 +69,29 @@ async def get_captcha_token():
         # Atualiza o tempo da última requisição
         last_used_time = time.time()
 
+        # Código JavaScript simplificado para retornar o elemento do hCaptcha
         js_function = """
         var done = arguments[0];
         (async function() {
             try {
                 const element = document.querySelector('[data-hcaptcha-widget-id]');
-                if (!element) return done('');
-                
-                const captchaId = element.getAttribute('data-hcaptcha-widget-id');
-                const response = await hcaptcha.execute(captchaId, {async: true});
-                done(response);
+                if (!element) return done('Elemento não encontrado');
+                done(element.outerHTML);  // Retorna o HTML do elemento para depuração
             } catch(error) {
                 console.error('Erro:', error);
-                done('');
+                done('Erro ao buscar elemento');
             }
         })();
         """
 
         try:
-            # Executa o script para gerar o token
-            token = driver.execute_async_script(js_function)
-
-            # Reseta o captcha para próxima requisição
-            driver.execute_script("""
-                const element = document.querySelector('[data-hcaptcha-widget-id]');
-                if (element && hcaptcha) {
-                    hcaptcha.reset(element.getAttribute('data-hcaptcha-widget-id'));
-                }
-            """)
-
-            return {"token": token or ""}
+            # Executa o script para buscar o elemento
+            element_html = driver.execute_async_script(js_function)
+            return {"element": element_html}
 
         except Exception as e:
-            print("Erro na geração do token:", str(e))
-            return {"token": ""}
+            print("Erro na execução do script:", str(e))
+            return {"error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
