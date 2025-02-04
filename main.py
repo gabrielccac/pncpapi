@@ -81,7 +81,10 @@ async def get_captcha_token():
                 const captchaId = element.getAttribute('data-hcaptcha-widget-id');
                 if (!captchaId) return done('Captcha ID não encontrado');
                 
-                done(captchaId);  // Retorna o captchaId para depuração
+                const reponse = await hcaptcha.execute(captchaId, {async: true});
+                if (!reponse) return done('Erro ao executar hCaptcha');
+                done(reponse);
+
             } catch(error) {
                 console.error('Erro:', error);
                 done('Erro ao buscar captchaId');
@@ -91,8 +94,8 @@ async def get_captcha_token():
 
         try:
             # Executa o script para buscar o elemento
-            element_html = driver.execute_async_script(js_function)
-            return {"element": element_html}
+            token = driver.execute_async_script(js_function)
+            return {"captcha": token}
 
         except Exception as e:
             print("Erro na execução do script:", str(e))
