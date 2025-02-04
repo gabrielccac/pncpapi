@@ -19,43 +19,27 @@ async def lifespan(app: FastAPI):
     driver = None
     last_used_time = time.time()
     yield
+    # Encerra o driver no shutdown
     if driver:
         driver.quit()
 
 app = FastAPI(lifespan=lifespan)
 
-def wait_for_hcaptcha_ready():
-    """Espera até que o hCaptcha esteja totalmente carregado e pronto"""
-    wait = WebDriverWait(driver, 15)
-    
-    # Espera pelo iframe do hCaptcha
-    iframe = wait.until(EC.presence_of_element_located(
-        (By.CSS_SELECTOR, 'iframe[data-hcaptcha-widget-id]')
-    ))
-    
-    # Espera até que o objeto hcaptcha esteja disponível no JavaScript
-    wait.until(lambda d: d.execute_script(
-        "return typeof hcaptcha !== 'undefined' && hcaptcha.getResponse !== undefined"
-    ))
-    
-    # Pequena pausa adicional para garantir que o hCaptcha está totalmente inicializado
-    time.sleep(1)
-
 def initialize_driver():
     global driver, last_used_time
+    driver = Driver(uc=True, headless=True)
+    driver.get("https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/landing?destino=acompanhamento-compra&compra=15695605900832024")
+
+    # Espera explícita pelo carregamento do hCaptcha
     try:
-        driver = Driver(uc=True, headless=True)
-        driver.get("https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/landing?destino=acompanhamento-compra&compra=15695605900832024")
-        
-        # Espera pelo carregamento completo do hCaptcha
-        wait_for_hcaptcha_ready()
-        
+        wait = WebDriverWait(driver, 15)
+        wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, 'iframe[data-hcaptcha-widget-id]')
+        ))
     except Exception as e:
-        print(f"Erro na inicialização: {str(e)}")
-        if driver:
-            driver.quit()
+        print("Erro na inicialização:", str(e))
+        driver.quit()
         driver = None
-        raise
 
 def close_driver_if_inactive():
     global driver, last_used_time
@@ -67,71 +51,52 @@ def close_driver_if_inactive():
 @app.get("/get-token")
 async def get_captcha_token():
     global driver, driver_lock, last_used_time
-    
+
     with driver_lock:
+        # Verifica se o navegador deve ser fechado por inatividade
+        close_driver_if_inactive()
+
+        # Se o navegador não estiver aberto, inicializa um novo
+        if not driver:
+            print("Inicializando novo navegador...")
+            initialize_driver()
+
+        # Atualiza o tempo da última requisição
+        last_used_time = time.time()
+
+        js_function = """
+        var done = arguments[0];
+        (async function() {
+            try {
+                const element = document.querySelector('[data-hcaptcha-widget-id]');
+                if (!element) return done('');
+                
+                const captchaId = element.getAttribute('data-hcaptcha-widget-id');
+                const response = await hcaptcha.execute(captchaId, {async: true});
+                done(response);
+            } catch(error) {
+                console.error('Erro:', error);
+                done('');
+            }
+        })();
+        """
+
         try:
-            # Verifica inatividade
-            close_driver_if_inactive()
-            
-            # Inicializa ou reinicializa o driver se necessário
-            if not driver:
-                print("Inicializando novo navegador...")
-                initialize_driver()
-            
-            # Atualiza timestamp
-            last_used_time = time.time()
-            
-            # Verifica se o hCaptcha ainda está pronto
-            try:
-                driver.execute_script("return typeof hcaptcha !== 'undefined'")
-            except:
-                print("hCaptcha não está pronto, reinicializando...")
-                driver.quit()
-                driver = None
-                initialize_driver()
-            
-            js_function = """
-            return new Promise((resolve) => {
-                (async function() {
-                    try {
-                        const element = document.querySelector('[data-hcaptcha-widget-id]');
-                        if (!element) {
-                            resolve('');
-                            return;
-                        }
-                        
-                        const captchaId = element.getAttribute('data-hcaptcha-widget-id');
-                        const response = await hcaptcha.execute(captchaId, {async: true});
-                        resolve(response);
-                    } catch(error) {
-                        console.error('Erro:', error);
-                        resolve('');
-                    }
-                })();
-            });
-            """
-            
-            # Executa o script com timeout explícito
-            token = WebDriverWait(driver, 30).until(
-                lambda d: d.execute_script(js_function)
-            )
-            
-            # Reset do captcha
+            # Executa o script para gerar o token
+            token = driver.execute_async_script(js_function)
+
+            # Reseta o captcha para próxima requisição
             driver.execute_script("""
                 const element = document.querySelector('[data-hcaptcha-widget-id]');
                 if (element && hcaptcha) {
                     hcaptcha.reset(element.getAttribute('data-hcaptcha-widget-id'));
                 }
             """)
-            
+
             return {"token": token or ""}
-            
+
         except Exception as e:
-            print(f"Erro na geração do token: {str(e)}")
-            # Em caso de erro, força reinicialização na próxima chamada
-            if driver:
-                driver.quit()
-                driver = None
+            print("Erro na geração do token:", str(e))
             return {"token": ""}
 
 if __name__ == "__main__":
