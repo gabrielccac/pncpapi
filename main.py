@@ -74,29 +74,29 @@ async def get_captcha_token():
         var done = arguments[0];
         (async function() {
             try {
-            const element = document.querySelector('[data-hcaptcha-widget-id]');
-            if (!element) return done({error: 'Elemento não encontrado'});
+                const element = document.querySelector('[data-hcaptcha-widget-id]');
+                if (!element) return done({error: 'Elemento não encontrado'});
 
-            // Extrai o captchaId do atributo data-hcaptcha-widget-id
-            const captchaId = element.getAttribute('data-hcaptcha-widget-id');
-            if (!captchaId) return done({error: 'Captcha ID não encontrado'});
+                // Extrai o captchaId do atributo data-hcaptcha-widget-id
+                const captchaId = element.getAttribute('data-hcaptcha-widget-id');
+                if (!captchaId) return done({error: 'Captcha ID não encontrado'});
 
-            // Cria uma promessa que rejeita após 10 segundos
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => {
-                    reject(new Error('Timeout: hCaptcha não respondeu em 10 segundos'));
-                }, 10000); // 10 segundos
-            });
+                // Cria uma promessa que rejeita após 30 segundos
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => {
+                        reject(new Error('Timeout: hCaptcha não respondeu em 30 segundos'));
+                    }, 30000); // 30 segundos
+                });
 
-            // Executa o hCaptcha e compete com o timeout
-            const hcaptchaPromise = hcaptcha.execute(captchaId, {async: true});
+                // Executa o hCaptcha e compete com o timeout
+                const hcaptchaPromise = hcaptcha.execute(captchaId, {async: true});
 
-            // Usa Promise.race para definir o timeout
-            const reponse = await Promise.race([hcaptchaPromise, timeoutPromise]);
+                // Usa Promise.race para definir o timeout
+                const reponse = await Promise.race([hcaptchaPromise, timeoutPromise]);
 
-            if (!reponse) return done({error: 'Erro ao executar hCaptcha'});
+                if (!reponse) return done({error: 'Erro ao executar hCaptcha'});
 
-            done({token: reponse});
+                done({token: reponse});
             } catch(error) {
                 console.error('Erro:', error);
                 done({error: error.message || 'Erro ao buscar captchaId'});
@@ -108,15 +108,17 @@ async def get_captcha_token():
             # Executa o script para buscar o elemento
             result = driver.execute_async_script(js_function)
 
-            # Verifica se houve erro no JavaScript
-            if "error" in result:
-                return {"error": result["error"]}
-
-            sleep(3)
-            
             # Captura o screenshot da página após a execução do hCaptcha
+            sleep(3)  # Espera 3 segundos para garantir que a página esteja estável
             screenshot = driver.get_screenshot_as_png()
             screenshot_base64 = base64.b64encode(screenshot).decode('utf-8')
+
+            # Verifica se houve erro no JavaScript
+            if "error" in result:
+                return {
+                    "error": result["error"],
+                    "screenshot": screenshot_base64  # Retorna o screenshot mesmo em caso de erro
+                }
 
             return {
                 "captcha": result["token"],
@@ -125,7 +127,13 @@ async def get_captcha_token():
 
         except Exception as e:
             print("Erro na execução do script:", str(e))
-            return {"error": str(e)}
+            # Captura o screenshot mesmo em caso de exceção
+            screenshot = driver.get_screenshot_as_png()
+            screenshot_base64 = base64.b64encode(screenshot).decode('utf-8')
+            return {
+                "error": str(e),
+                "screenshot": screenshot_base64
+            }
 
 if __name__ == "__main__":
     import uvicorn
