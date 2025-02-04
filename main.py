@@ -6,6 +6,8 @@ from selenium.webdriver.common.by import By
 from contextlib import asynccontextmanager
 import threading
 import time
+import base64
+from io import BytesIO
 
 # Variáveis globais para gerenciar o driver, lock e último uso
 driver = None
@@ -52,51 +54,68 @@ async def get_captcha_token():
     global driver, driver_lock, last_used_time
 
     with driver_lock:
-        # Verifica se o navegador deve ser fechado por inatividade
         close_driver_if_inactive()
 
-        # Se o navegador não estiver aberto, inicializa um novo
         if not driver:
-            print("Inicializando novo navegador...")
             initialize_driver()
 
-        # Atualiza o tempo da última requisição
         last_used_time = time.time()
 
-        js_function = """
-        var done = arguments[0];
-        (async function() {
-            try {
-                const element = document.querySelector('[data-hcaptcha-widget-id]');
-                if (!element) return done('');
-                
-                const captchaId = element.getAttribute('data-hcaptcha-widget-id');
-                const response = await hcaptcha.execute(captchaId, {async: true});
-                done(response);
-            } catch(error) {
-                console.error('Erro:', error);
-                done('');
-            }
-        })();
-        """
-
         try:
-            # Executa o script para gerar o token
-            token = driver.execute_async_script(js_function)
-
-            # Reseta o captcha para próxima requisição
-            driver.execute_script("""
-                const element = document.querySelector('[data-hcaptcha-widget-id]');
-                if (element && hcaptcha) {
-                    hcaptcha.reset(element.getAttribute('data-hcaptcha-widget-id'));
-                }
-            """)
-
-            return {"token": token or ""}
-
+            screenshot = driver.get_screenshot_as_png()
+            b64_screenshot = base64.b64encode(screenshot).decode()
+            return {"screenshot": b64_screenshot}
         except Exception as e:
-            print("Erro na geração do token:", str(e))
-            return {"token": ""}
+            print("Screenshot error:", str(e))
+            return {"screenshot": ""}
+    # global driver, driver_lock, last_used_time
+
+    # with driver_lock:
+    #     # Verifica se o navegador deve ser fechado por inatividade
+    #     close_driver_if_inactive()
+
+    #     # Se o navegador não estiver aberto, inicializa um novo
+    #     if not driver:
+    #         print("Inicializando novo navegador...")
+    #         initialize_driver()
+
+    #     # Atualiza o tempo da última requisição
+    #     last_used_time = time.time()
+
+    #     js_function = """
+    #     var done = arguments[0];
+    #     (async function() {
+    #         try {
+    #             const element = document.querySelector('[data-hcaptcha-widget-id]');
+    #             if (!element) return done('');
+                
+    #             const captchaId = element.getAttribute('data-hcaptcha-widget-id');
+    #             const response = await hcaptcha.execute(captchaId, {async: true});
+    #             done(response);
+    #         } catch(error) {
+    #             console.error('Erro:', error);
+    #             done('');
+    #         }
+    #     })();
+    #     """
+
+    #     try:
+    #         # Executa o script para gerar o token
+    #         token = driver.execute_async_script(js_function)
+
+    #         # Reseta o captcha para próxima requisição
+    #         driver.execute_script("""
+    #             const element = document.querySelector('[data-hcaptcha-widget-id]');
+    #             if (element && hcaptcha) {
+    #                 hcaptcha.reset(element.getAttribute('data-hcaptcha-widget-id'));
+    #             }
+    #         """)
+
+    #         return {"token": token or ""}
+
+    #     except Exception as e:
+    #         print("Erro na geração do token:", str(e))
+    #         return {"token": ""}
 
 if __name__ == "__main__":
     import uvicorn
