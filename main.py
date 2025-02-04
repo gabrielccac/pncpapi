@@ -28,6 +28,7 @@ app = FastAPI(lifespan=lifespan)
 def initialize_driver():
     global driver, last_used_time
     driver = Driver(uc=True, headless=True)
+    driver.set_script_timeout(30)
     driver.get("https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras")
 
     # Espera explícita pelo carregamento do hCaptcha
