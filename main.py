@@ -1,122 +1,111 @@
-from fastapi import FastAPI
+from flask import Flask, jsonify
 from seleniumbase import Driver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from contextlib import asynccontextmanager
+from time import sleep
 import threading
-import time
-import base64
-from io import BytesIO
+import queue
 
-# Variáveis globais para gerenciar o driver, lock e último uso
-driver = None
-driver_lock = threading.Lock()
-last_used_time = None
-TIMEOUT = 300  # 5 minutos de inatividade
+app = Flask(__name__)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global driver, last_used_time
-    driver = None
-    last_used_time = time.time()
-    yield
-    # Encerra o driver no shutdown
-    if driver:
-        driver.quit()
+class BrowserManager:
+    def __init__(self):
+        self.driver = None
+        self.lock = threading.Lock()
+        
+    def get_driver(self):
+        with self.lock:
+            if self.driver is None:
+                self.driver = Driver(uc=True, headless=True)
+            return self.driver
+            
+    def close_driver(self):
+        with self.lock:
+            if self.driver:
+                self.driver.quit()
+                self.driver = None
 
-app = FastAPI(lifespan=lifespan)
+browser_manager = BrowserManager()
 
-def initialize_driver():
-    global driver, last_used_time
-    driver = Driver(uc=True, headless=True)
-    driver.set_window_size(1200, 600)
-    driver.get("https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras")
-
-    # Espera explícita pelo carregamento do hCaptcha
+def generate_token():
+    driver = browser_manager.get_driver()
+    result_queue = queue.Queue()
+    
     try:
+        driver.get("https://cnetmobile.estaleiro.serpro.gov.br/comprasnet-web/public/compras")
+        sleep(5)
+        
+        js_function = """
+        var done = arguments[0];
+        
+        (async function generateCaptchaToken() {
+            try {
+                let attempts = 0;
+                while (typeof hcaptcha === 'undefined' && attempts < 10) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    attempts++;
+                }
+                
+                const element = document.querySelector('[data-hcaptcha-widget-id]');
+                if (!element) {
+                    done('');
+                    return;
+                }
+
+                const captchaId = element.getAttribute('data-hcaptcha-widget-id');
+                console.log('Captcha ID:', captchaId);
+
+                if (typeof hcaptcha === 'undefined') {
+                    done('');
+                    return;
+                }
+                
+                try {
+                    const response = await hcaptcha.execute(captchaId, { async: true });
+                    done(response);
+                } catch (err) {
+                    console.error('hCaptcha execution error:', err);
+                    done('');
+                }
+            } catch (error) {
+                console.error('Error generating captcha token:', error);
+                done('');
+            }
+        })();
+        """
+        
         wait = WebDriverWait(driver, 10)
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'iframe[data-hcaptcha-widget-id]')))
+        
+        token = driver.execute_async_script(js_function)
+        return token if token else ""
+        
     except Exception as e:
-        print("Erro na inicialização:", str(e))
-        driver.quit()
-        driver = None
+        print(f"Error generating token: {str(e)}")
+        return ""
 
-def close_driver_if_inactive():
-    global driver, last_used_time
-    if driver and (time.time() - last_used_time) > TIMEOUT:
-        print("Fechando navegador por inatividade...")
-        driver.quit()
-        driver = None
+@app.route('/get-token', methods=['GET'])
+def get_token():
+    try:
+        token = generate_token()
+        if token:
+            return jsonify({"success": True, "token": token})
+        else:
+            return jsonify({"success": False, "error": "Failed to generate token"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
-@app.get("/get-token")
-async def get_captcha_token():
-    global driver, driver_lock, last_used_time
+@app.errorhandler(Exception)
+def handle_error(error):
+    return jsonify({"success": False, "error": str(error)}), 500
 
-    with driver_lock:
-        close_driver_if_inactive()
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000)
 
-        if not driver:
-            initialize_driver()
+# Cleanup on shutdown
+import atexit
 
-        last_used_time = time.time()
-
-        try:
-            screenshot = driver.get_screenshot_as_png()
-            b64_screenshot = base64.b64encode(screenshot).decode()
-            return {"screenshot": b64_screenshot}
-        except Exception as e:
-            print("Screenshot error:", str(e))
-            return {"screenshot": ""}
-    # global driver, driver_lock, last_used_time
-
-    # with driver_lock:
-    #     # Verifica se o navegador deve ser fechado por inatividade
-    #     close_driver_if_inactive()
-
-    #     # Se o navegador não estiver aberto, inicializa um novo
-    #     if not driver:
-    #         print("Inicializando novo navegador...")
-    #         initialize_driver()
-
-    #     # Atualiza o tempo da última requisição
-    #     last_used_time = time.time()
-
-    #     js_function = """
-    #     var done = arguments[0];
-    #     (async function() {
-    #         try {
-    #             const element = document.querySelector('[data-hcaptcha-widget-id]');
-    #             if (!element) return done('');
-                
-    #             const captchaId = element.getAttribute('data-hcaptcha-widget-id');
-    #             const response = await hcaptcha.execute(captchaId, {async: true});
-    #             done(response);
-    #         } catch(error) {
-    #             console.error('Erro:', error);
-    #             done('');
-    #         }
-    #     })();
-    #     """
-
-    #     try:
-    #         # Executa o script para gerar o token
-    #         token = driver.execute_async_script(js_function)
-
-    #         # Reseta o captcha para próxima requisição
-    #         driver.execute_script("""
-    #             const element = document.querySelector('[data-hcaptcha-widget-id]');
-    #             if (element && hcaptcha) {
-    #                 hcaptcha.reset(element.getAttribute('data-hcaptcha-widget-id'));
-    #             }
-    #         """)
-
-    #         return {"token": token or ""}
-
-    #     except Exception as e:
-    #         print("Erro na geração do token:", str(e))
-    #         return {"token": ""}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@atexit.register
+def cleanup():
+    browser_manager.close_driver()
