@@ -81,9 +81,8 @@ async def get_captcha_token():
                 const captchaId = element.getAttribute('data-hcaptcha-widget-id');
                 if (!captchaId) return done('Captcha ID não encontrado');
                 
-                const reponse = await hcaptcha.execute(captchaId, {async: true});
-                if (!reponse) return done('Erro ao executar hCaptcha');
-                done(reponse);
+                done(captchaId);
+
 
             } catch(error) {
                 console.error('Erro:', error);
