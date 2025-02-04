@@ -70,16 +70,21 @@ async def get_captcha_token():
         last_used_time = time.time()
 
         # Código JavaScript simplificado para retornar o elemento do hCaptcha
-        js_function = """
+        js_function = js_function = """
         var done = arguments[0];
         (async function() {
             try {
                 const element = document.querySelector('[data-hcaptcha-widget-id]');
                 if (!element) return done('Elemento não encontrado');
-                done(element.outerHTML);  // Retorna o HTML do elemento para depuração
+                
+                // Extrai o captchaId do atributo data-hcaptcha-widget-id
+                const captchaId = element.getAttribute('data-hcaptcha-widget-id');
+                if (!captchaId) return done('Captcha ID não encontrado');
+                
+                done(captchaId);  // Retorna o captchaId para depuração
             } catch(error) {
                 console.error('Erro:', error);
-                done('Erro ao buscar elemento');
+                done('Erro ao buscar captchaId');
             }
         })();
         """
